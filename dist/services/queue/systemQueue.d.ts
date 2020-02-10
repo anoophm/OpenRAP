@@ -13,7 +13,7 @@ export declare class SystemQueue {
      * This method should be called after all plugin and app are initialized
      * @param config
      */
-    initialize(config: Config): Promise<void>;
+    initialize(config?: any): Promise<void>;
     /**
      * method to track progress of task.
      * this method will stop the task for which progress is not updated for configured time
@@ -43,21 +43,22 @@ export declare class SystemQueue {
     resume(plugin: string, _id: string): Promise<void>;
     cancel(plugin: string, _id: string): Promise<void>;
     retry(plugin: string, _id: string): Promise<void>;
+    migrate(queueData: ISystemQueue[]): Promise<string[]>;
 }
 export interface ITaskExecuter {
     start(ISystemQueue: ISystemQueue, observer: Observer<ISystemQueue>): Promise<boolean | SystemQueueError>;
     status(): ISystemQueue;
     pause?(): Promise<boolean | SystemQueueError>;
-    resume?(ISystemQueue: any): Promise<boolean | SystemQueueError>;
+    resume?(ISystemQueue: ISystemQueue, observer: Observer<ISystemQueue>): Promise<boolean | SystemQueueError>;
     cancel?(): Promise<boolean | SystemQueueError>;
-    retry?(ISystemQueue: any): Promise<boolean | SystemQueueError>;
+    retry?(ISystemQueue: ISystemQueue, observer: Observer<ISystemQueue>): Promise<boolean | SystemQueueError>;
 }
 export interface TaskExecuter {
     new (): ITaskExecuter;
 }
 export interface SystemQueueReq {
     type: ISystemQueue['type'];
-    group: ISystemQueue['group'];
+    group?: ISystemQueue['group'];
     metaData: ISystemQueue['metaData'];
     name: ISystemQueue['name'];
 }
@@ -84,15 +85,6 @@ export interface SystemQueueQuery {
     updatedOn?: ISystemQueue['updatedOn'] | {
         $gt: ISystemQueue['updatedOn'];
     };
-}
-export declare enum ConcurrencyLevel {
-    app = "app",
-    plugin = "plugin",
-    task = "task"
-}
-export interface Config {
-    concurrency: number;
-    concurrencyLevel: ConcurrencyLevel;
 }
 export interface RegisteredTasks {
     plugin: string;

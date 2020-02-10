@@ -33,6 +33,12 @@ const logger_1 = require("@project-sunbird/ext-framework-server/logger");
 const uuid = require("uuid");
 const rxjs_1 = require("rxjs");
 const operators_1 = require("rxjs/operators");
+const DEFAULT_CONCURRENCY = {
+    "openrap-sunbirded-plugin_IMPORT": 1,
+    "openrap-sunbirded-plugin_DOWNLOAD": 1,
+    "openrap-sunbirded-plugin_DELETE": 1,
+    default: 1
+};
 let SystemQueue = class SystemQueue {
     constructor() {
         this.dbName = 'system_queue';
@@ -40,10 +46,8 @@ let SystemQueue = class SystemQueue {
         this.runningTasks = [];
         this.lockTaskExecuter = false;
         this.config = {
-            concurrency: 1,
-            concurrencyLevel: ConcurrencyLevel.task // runs one task at a time for each type of task per plugin
+            concurrency: DEFAULT_CONCURRENCY
         };
-        //TODO: support custom actions
     }
     /**
      * method to initializes system queue.
@@ -117,7 +121,7 @@ let SystemQueue = class SystemQueue {
                 };
             }
             tasks = _.isArray(tasks) ? tasks : [tasks];
-            const queueData = tasks.map(task => (Object.assign({}, task, { _id: uuid(), createdOn: Date.now(), updatedOn: Date.now(), status: IQueue_1.SystemQueueStatus.inQueue, progress: 0, plugin, priority: 1, runTime: 0, isActive: true })));
+            const queueData = tasks.map((task, index) => (Object.assign({}, task, { _id: uuid(), createdOn: Date.now() + index, updatedOn: Date.now() + index, status: IQueue_1.SystemQueueStatus.inQueue, progress: 0, plugin, priority: 1, runTime: 0, isActive: true })));
             logger_1.logger.info("Adding to queue for", plugin, queueData.length);
             yield this.dbSDK.bulkDocs(this.dbName, queueData)
                 .catch((err) => logger_1.logger.error("SystemQueue, Error while adding task in db", err.message));
@@ -137,7 +141,8 @@ let SystemQueue = class SystemQueue {
                 const fetchQuery = [];
                 let groupedRunningTask = _.groupBy(this.runningTasks, (task) => `${task.plugin}_${task.type}`);
                 _.forIn(this.registeredTasks, (value, key) => {
-                    if ((_.get(groupedRunningTask[key], 'length') || 0) < this.config.concurrency) {
+                    const concurrency = this.config.concurrency[key] || this.config.concurrency.default;
+                    if ((_.get(groupedRunningTask[key], 'length') || 0) < concurrency) {
                         fetchQuery.push({ plugin: value.plugin, type: value.type });
                     }
                 });
@@ -167,7 +172,8 @@ let SystemQueue = class SystemQueue {
                     const task = docs[queuedTaskIndex];
                     const taskExecuter = _.get(this.registeredTasks[`${task.plugin}_${task.type}`], 'taskExecuter');
                     const runningTaskCount = (_.get(groupedRunningTask[`${task.plugin}_${task.type}`], 'length') || 0);
-                    if (taskExecuter && (runningTaskCount < this.config.concurrency)) {
+                    const concurrency = this.config.concurrency[`${task.plugin}_${task.type}`] || this.config.concurrency.default;
+                    if (taskExecuter && (runningTaskCount < concurrency)) {
                         const taskExecuterRef = new taskExecuter();
                         const syncFunc = this.getTaskSyncFun(task);
                         const observer = this.getTaskObserver(task, syncFunc);
@@ -272,8 +278,8 @@ let SystemQueue = class SystemQueue {
             const inProgressJob = _.find(this.runningTasks, { _id });
             if (inProgressJob) {
                 const res = yield inProgressJob.taskExecuterRef.pause();
-                if (!res) {
-                    throw "INVALID_OPERATION";
+                if (res !== true) {
+                    throw res || "INVALID_OPERATION";
                 }
                 const queueData = inProgressJob.taskExecuterRef.status();
                 queueData.status = IQueue_1.SystemQueueStatus.paused;
@@ -312,8 +318,8 @@ let SystemQueue = class SystemQueue {
             const inProgressJob = _.find(this.runningTasks, { _id });
             if (inProgressJob) {
                 const res = yield inProgressJob.taskExecuterRef.cancel();
-                if (!res) {
-                    throw "INVALID_OPERATION";
+                if (res !== true) {
+                    throw res || "INVALID_OPERATION";
                 }
                 const queueData = inProgressJob.taskExecuterRef.status();
                 queueData.status = IQueue_1.SystemQueueStatus.canceled;
@@ -348,6 +354,23 @@ let SystemQueue = class SystemQueue {
             this.executeNextTask();
         });
     }
+    //TODO: support custom actions
+    // TODO: Need to remove this in next release 
+    migrate(queueData) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (_.isEmpty(queueData)) {
+                throw {
+                    code: "TASK_DATA_MISSING",
+                    status: 400,
+                    message: "Task data is missing or empty"
+                };
+            }
+            yield this.dbSDK.bulkDocs(this.dbName, queueData)
+                .catch((err) => logger_1.logger.error("SystemQueue migration, Error while adding task in db", err.message));
+            this.executeNextTask();
+            return queueData.map(({ _id }) => _id);
+        });
+    }
 };
 __decorate([
     typescript_ioc_2.Inject,
@@ -357,9 +380,3 @@ SystemQueue = __decorate([
     typescript_ioc_1.Singleton
 ], SystemQueue);
 exports.SystemQueue = SystemQueue;
-var ConcurrencyLevel;
-(function (ConcurrencyLevel) {
-    ConcurrencyLevel["app"] = "app";
-    ConcurrencyLevel["plugin"] = "plugin";
-    ConcurrencyLevel["task"] = "task";
-})(ConcurrencyLevel = exports.ConcurrencyLevel || (exports.ConcurrencyLevel = {}));

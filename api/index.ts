@@ -9,18 +9,19 @@ import { register } from "./../sdks/GlobalSDK";
 import SettingSDK from "./../sdks/SettingSDK";
 import FileSDK from "./../sdks/FileSDK";
 import NetworkSDK from "./../sdks/NetworkSDK";
-import DownloadManager from "./../managers/DownloadManager/DownloadManager";
 import SystemSDK from "./../sdks/SystemSDK";
 import TelemetrySDK from "./../sdks/TelemetrySDK";
 import { UserSDK } from "./../sdks/UserSDK";
 import { TicketSDK } from "./../sdks/TicketSDK";
-import { SystemQueue, TaskExecuter, SystemQueueReq, SystemQueueQuery } from './../services/queue';
+import { DownloadSDK } from "./../sdks/DownloadSDK";
+import { SystemQueue, TaskExecuter, SystemQueueReq, SystemQueueQuery, ISystemQueue } from './../services/queue';
 export { ITaskExecuter, SystemQueueQuery, ISystemQueue, SystemQueueReq, SystemQueueStatus } from "./../services/queue";
 @Singleton
 class ContainerAPI {
   @Inject userSDK : UserSDK;
   @Inject ticketSDK : TicketSDK;
   @Inject systemQueue: SystemQueue
+  @Inject downloadSDK: DownloadSDK
   public async bootstrap() {
     await App.bootstrap();
   }
@@ -40,7 +41,9 @@ class ContainerAPI {
   public getFileSDKInstance(pluginId: string): FileSDK {
     return new FileSDK(pluginId);
   }
-
+  public getDownloadSdkInstance(){
+    return this.downloadSDK;
+  }
   // get the Network SDK
 
   public async getNetworkStatus(url?: string): Promise<boolean> {
@@ -49,11 +52,6 @@ class ContainerAPI {
     return status;
   }
 
-  // get the downloadManager Instance
-
-  public getDownloadManagerInstance(pluginId: string): DownloadManager {
-    return new DownloadManager(pluginId);
-  }
   public getSystemSDKInstance(pluginId: string): SystemSDK {
     return new SystemSDK(pluginId);
   }
@@ -67,6 +65,9 @@ class ContainerAPI {
   }
   public getTicketSdkInstance(){
     return this.ticketSDK;
+  }
+  public initializeSystemQueue(){
+    this.systemQueue.initialize();
   }
   public getSystemQueueInstance(pluginId: string): ISystemQueueInstance{
     const register = (type: string, taskExecuter: TaskExecuter) => {
@@ -90,7 +91,10 @@ class ContainerAPI {
     const retry = (_id: string) => {
       return this.systemQueue.retry(pluginId, _id);
     }
-    return { register, add, query, pause, resume, cancel, retry }
+    const migrate = (tasks: ISystemQueue[]) => {
+      return this.systemQueue.migrate(tasks);
+    }
+    return { register, add, query, pause, resume, cancel, retry, migrate }
   }
 }
 export interface ISystemQueueInstance {
@@ -101,5 +105,6 @@ export interface ISystemQueueInstance {
   resume(_id: string);
   cancel(_id: string);
   retry(_id: string);
+  migrate(tasks: ISystemQueue[]);
 }
 export const containerAPI = new ContainerAPI();
